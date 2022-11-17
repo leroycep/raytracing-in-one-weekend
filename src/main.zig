@@ -2,6 +2,10 @@ const std = @import("std");
 const Vec3d = @import("vec3.zig").Vec3d;
 
 pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
     // stdout is for the actual output of your application, for example if you
     // are implementing gzip, then only the compressed bytes should be sent to
     // stdout, not any debugging messages.
@@ -22,6 +26,11 @@ pub fn main() !void {
     const vertical = @Vector(3, f64){ 0, viewport_height, 0 };
     const lower_left = origin - horizontal / @splat(3, @as(f64, 2)) - vertical / @splat(3, @as(f64, 2)) - @Vector(3, f64){ 0, 0, focal_length };
 
+    var world = World{ .allocator = allocator };
+    defer world.deinit();
+    try world.spheres.append(world.allocator, .{ .center = .{ 0, 0, -1 }, .radius = 0.5 });
+    try world.spheres.append(world.allocator, .{ .center = .{ 0, -100.5, -1 }, .radius = 100 });
+
     try stdout.print("P3\n{} {}\n255\n", .{ width, height });
 
     var j: usize = height;
@@ -35,7 +44,7 @@ pub fn main() !void {
 
             const ray = Ray{ .pos = origin, .dir = lower_left + u * horizontal + v * vertical - origin };
 
-            const pixel_color = rayColor(ray);
+            const pixel_color = rayColor(ray, world);
             try writeColor(stdout, pixel_color);
         }
     }
@@ -44,29 +53,77 @@ pub fn main() !void {
     std.debug.print("\nDone.\n", .{});
 }
 
-pub fn rayColor(ray: Ray) [3]f64 {
-    const hit = hitSphere(ray, .{ 0, 0, -1 }, 0.5);
-    if (hit > 0) {
-        const unit_vector = Vec3d.unitVector(ray.at(hit) - @Vector(3, f64){ 0, 0, -1 });
-        return @splat(3, @as(f64, 0.5)) * (unit_vector + @splat(3, @as(f64, 1)));
+pub fn rayColor(ray: Ray, world: World) [3]f64 {
+    if (world.hit(ray, 0, std.math.inf_f64)) |hit| {
+        return @splat(3, @as(f64, 0.5)) * (hit.normal + @splat(3, @as(f64, 1)));
     }
     const unit_direction = Vec3d.unitVector(ray.dir);
     const t = 0.5 * (unit_direction[1] + 1.0);
     return @splat(3, 1.0 - t) * @Vector(3, f64){ 1, 1, 1 } + @splat(3, t) * @Vector(3, f64){ 0.5, 0.7, 1 };
 }
 
-pub fn hitSphere(ray: Ray, center: @Vector(3, f64), radius: f64) f64 {
-    const oc = ray.pos - center;
-    const a = Vec3d.lengthSquared(ray.dir);
-    const half_b = Vec3d.dot(oc, ray.dir);
-    const c = Vec3d.lengthSquared(oc) - radius * radius;
-    const discriminant = half_b * half_b - a * c;
-    if (discriminant < 0) {
-        return -1.0;
-    } else {
-        return (-half_b - @sqrt(discriminant)) / a;
+pub const HitRecord = struct {
+    point: @Vector(3, f64),
+    normal: @Vector(3, f64),
+    t: f64,
+    front_face: bool,
+};
+
+pub const World = struct {
+    allocator: std.mem.Allocator,
+    spheres: std.ArrayListUnmanaged(Sphere) = .{},
+
+    pub fn deinit(this: *@This()) void {
+        this.spheres.deinit(this.allocator);
     }
-}
+
+    pub fn hit(this: @This(), ray: Ray, t_min: f64, t_max: f64) ?HitRecord {
+        var hit_record: ?HitRecord = null;
+        for (this.spheres.items) |sphere| {
+            if (sphere.hit(ray, t_min, t_max)) |record| {
+                const prev = hit_record orelse {
+                    hit_record = record;
+                    continue;
+                };
+                if (record.t < prev.t) {
+                    hit_record = record;
+                }
+            }
+        }
+        return hit_record;
+    }
+};
+
+pub const Sphere = struct {
+    center: @Vector(3, f64),
+    radius: f64,
+
+    pub fn hit(this: @This(), ray: Ray, t_min: f64, t_max: f64) ?HitRecord {
+        const oc = ray.pos - this.center;
+        const a = Vec3d.lengthSquared(ray.dir);
+        const half_b = Vec3d.dot(oc, ray.dir);
+        const c = Vec3d.lengthSquared(oc) - this.radius * this.radius;
+        const discriminant = half_b * half_b - a * c;
+        if (discriminant < 0) return null;
+        const sqrt_discriminant = @sqrt(discriminant);
+
+        var root = (-half_b - sqrt_discriminant) / a;
+        if (root < t_min or t_max < root) {
+            root = (-half_b + sqrt_discriminant) / a;
+            if (root < t_min or t_max < root) {
+                return null;
+            }
+        }
+
+        const point = ray.at(root);
+        return HitRecord{
+            .t = root,
+            .point = point,
+            .normal = (point - this.center) / @splat(3, this.radius),
+            .front_face = true,
+        };
+    }
+};
 
 pub const Ray = struct {
     pos: [3]f64,
