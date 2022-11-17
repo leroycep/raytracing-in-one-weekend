@@ -1,9 +1,6 @@
 const std = @import("std");
 
 pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-
     // stdout is for the actual output of your application, for example if you
     // are implementing gzip, then only the compressed bytes should be sent to
     // stdout, not any debugging messages.
@@ -18,22 +15,28 @@ pub fn main() !void {
 
     var j: usize = height;
     while (j > 0) : (j -= 1) {
+        std.debug.print("\rScanlines remaining: {}", .{j});
+
         var i: usize = 0;
         while (i < width) : (i += 1) {
             const r = @intToFloat(f64, i) / width;
             const g = @intToFloat(f64, j) / height;
             const b = 0.25;
 
-            const ir = @floatToInt(u8, 255 * r);
-            const ig = @floatToInt(u8, 255 * g);
-            const ib = @floatToInt(u8, 255 * b);
-            try stdout.print("{} {} {}\n", .{ ir, ig, ib });
+            try writeColor(stdout, .{ r, g, b });
         }
     }
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
-
     try bw.flush(); // don't forget to flush!
+    std.debug.print("\nDone.\n", .{});
+}
+
+pub fn writeColor(writer: anytype, color: [3]f64) !void {
+    try writer.print("{} {} {}\n", .{
+        @floatToInt(u8, 255 * color[0]),
+        @floatToInt(u8, 255 * color[1]),
+        @floatToInt(u8, 255 * color[2]),
+    });
 }
 
 test "simple test" {
