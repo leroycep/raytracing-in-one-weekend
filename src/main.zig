@@ -45,9 +45,21 @@ pub fn main() !void {
 }
 
 pub fn rayColor(ray: Ray) [3]f64 {
+    if (hitSphere(ray, .{ 0, 0, -1 }, 0.5)) {
+        return .{ 1, 0, 0 };
+    }
     const unit_direction = Vec3d.unitVector(ray.dir);
     const t = 0.5 * (unit_direction[1] + 1.0);
     return @splat(3, 1.0 - t) * @Vector(3, f64){ 1, 1, 1 } + @splat(3, t) * @Vector(3, f64){ 0.5, 0.7, 1 };
+}
+
+pub fn hitSphere(ray: Ray, center: @Vector(3, f64), radius: f64) bool {
+    const oc = ray.pos - center;
+    const a = Vec3d.dot(ray.dir, ray.dir);
+    const b = 2.0 * Vec3d.dot(oc, ray.dir);
+    const c = Vec3d.dot(oc, oc) - radius * radius;
+    const discriminant = b * b - 4 * a * c;
+    return discriminant > 0;
 }
 
 pub const Ray = struct {
