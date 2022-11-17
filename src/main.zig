@@ -57,14 +57,14 @@ pub fn rayColor(ray: Ray) [3]f64 {
 
 pub fn hitSphere(ray: Ray, center: @Vector(3, f64), radius: f64) f64 {
     const oc = ray.pos - center;
-    const a = Vec3d.dot(ray.dir, ray.dir);
-    const b = 2.0 * Vec3d.dot(oc, ray.dir);
-    const c = Vec3d.dot(oc, oc) - radius * radius;
-    const discriminant = b * b - 4 * a * c;
+    const a = Vec3d.lengthSquared(ray.dir);
+    const half_b = Vec3d.dot(oc, ray.dir);
+    const c = Vec3d.lengthSquared(oc) - radius * radius;
+    const discriminant = half_b * half_b - a * c;
     if (discriminant < 0) {
         return -1.0;
     } else {
-        return (-b - @sqrt(discriminant)) / (2.0 * a);
+        return (-half_b - @sqrt(discriminant)) / a;
     }
 }
 
