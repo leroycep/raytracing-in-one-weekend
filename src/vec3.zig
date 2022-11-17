@@ -24,8 +24,8 @@ pub fn Vec3(comptime T: type) type {
             };
         }
 
-        pub fn unit_vector(v: @Vector(3, T)) @Vector(3, T) {
-            return v / length(v);
+        pub fn unitVector(v: @Vector(3, T)) @Vector(3, T) {
+            return v / @splat(3, length(v));
         }
     };
 }

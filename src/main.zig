@@ -1,4 +1,5 @@
 const std = @import("std");
+const Vec3d = @import("vec3.zig").Vec3d;
 
 pub fn main() !void {
     // stdout is for the actual output of your application, for example if you
@@ -8,8 +9,18 @@ pub fn main() !void {
     var bw = std.io.bufferedWriter(stdout_file);
     const stdout = bw.writer();
 
-    const width = 256;
-    const height = 256;
+    const aspect_ratio = 16.0 / 9.0;
+    const width = 400;
+    const height = @floatToInt(usize, @intToFloat(f64, width) / aspect_ratio);
+
+    const viewport_height = 2;
+    const viewport_width = aspect_ratio * viewport_height;
+    const focal_length = 1.0;
+
+    const origin = @Vector(3, f64){ 0, 0, 0 };
+    const horizontal = @Vector(3, f64){ viewport_width, 0, 0 };
+    const vertical = @Vector(3, f64){ 0, viewport_height, 0 };
+    const lower_left = origin - horizontal / @splat(3, @as(f64, 2)) - vertical / @splat(3, @as(f64, 2)) - @Vector(3, f64){ 0, 0, focal_length };
 
     try stdout.print("P3\n{} {}\n255\n", .{ width, height });
 
@@ -19,17 +30,30 @@ pub fn main() !void {
 
         var i: usize = 0;
         while (i < width) : (i += 1) {
-            const r = @intToFloat(f64, i) / width;
-            const g = @intToFloat(f64, j) / height;
-            const b = 0.25;
+            const u = @splat(3, @intToFloat(f64, i) / @intToFloat(f64, width));
+            const v = @splat(3, @intToFloat(f64, j) / @intToFloat(f64, height));
 
-            try writeColor(stdout, .{ r, g, b });
+            const ray = Ray{ .pos = origin, .dir = lower_left + u * horizontal + v * vertical - origin };
+
+            const pixel_color = rayColor(ray);
+            try writeColor(stdout, pixel_color);
         }
     }
 
     try bw.flush(); // don't forget to flush!
     std.debug.print("\nDone.\n", .{});
 }
+
+pub fn rayColor(ray: Ray) [3]f64 {
+    const unit_direction = Vec3d.unitVector(ray.dir);
+    const t = 0.5 * (unit_direction[1] + 1.0);
+    return @splat(3, 1.0 - t) * @Vector(3, f64){ 1, 1, 1 } + @splat(3, t) * @Vector(3, f64){ 0.5, 0.7, 1 };
+}
+
+pub const Ray = struct {
+    pos: [3]f64,
+    dir: [3]f64,
+};
 
 pub fn writeColor(writer: anytype, color: [3]f64) !void {
     try writer.print("{} {} {}\n", .{
