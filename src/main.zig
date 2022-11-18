@@ -6,6 +6,9 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
+    var rng = std.rand.DefaultPrng.init(1337);
+    const rand = rng.random();
+
     // stdout is for the actual output of your application, for example if you
     // are implementing gzip, then only the compressed bytes should be sent to
     // stdout, not any debugging messages.
@@ -26,6 +29,8 @@ pub fn main() !void {
     const vertical = @Vector(3, f64){ 0, viewport_height, 0 };
     const lower_left = origin - horizontal / @splat(3, @as(f64, 2)) - vertical / @splat(3, @as(f64, 2)) - @Vector(3, f64){ 0, 0, focal_length };
 
+    const samples_per_pixel = 100;
+
     var world = World{ .allocator = allocator };
     defer world.deinit();
     try world.spheres.append(world.allocator, .{ .center = .{ 0, 0, -1 }, .radius = 0.5 });
@@ -39,12 +44,20 @@ pub fn main() !void {
 
         var i: usize = 0;
         while (i < width) : (i += 1) {
-            const u = @splat(3, @intToFloat(f64, i) / @intToFloat(f64, width));
-            const v = @splat(3, @intToFloat(f64, j) / @intToFloat(f64, height));
+            var pixel_color = @Vector(3, f64){ 0, 0, 0 };
 
-            const ray = Ray{ .pos = origin, .dir = lower_left + u * horizontal + v * vertical - origin };
+            var samples_taken: usize = 0;
+            while (samples_taken < samples_per_pixel) : (samples_taken += 1) {
+                const u = @splat(3, (@intToFloat(f64, i) + rand.float(f64)) / @intToFloat(f64, width));
+                const v = @splat(3, (@intToFloat(f64, j) + rand.float(f64)) / @intToFloat(f64, height));
 
-            const pixel_color = rayColor(ray, world);
+                const ray = Ray{ .pos = origin, .dir = lower_left + u * horizontal + v * vertical - origin };
+
+                pixel_color += rayColor(ray, world);
+            }
+
+            pixel_color /= @splat(3, @intToFloat(f64, samples_taken));
+
             try writeColor(stdout, pixel_color);
         }
     }
