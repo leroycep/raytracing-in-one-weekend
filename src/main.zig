@@ -30,6 +30,7 @@ pub fn main() !void {
     const lower_left = origin - horizontal / @splat(3, @as(f64, 2)) - vertical / @splat(3, @as(f64, 2)) - @Vector(3, f64){ 0, 0, focal_length };
 
     const samples_per_pixel = 100;
+    const max_subcalls = 50;
 
     var world = World{ .allocator = allocator };
     defer world.deinit();
@@ -53,7 +54,7 @@ pub fn main() !void {
 
                 const ray = Ray{ .pos = origin, .dir = lower_left + u * horizontal + v * vertical - origin };
 
-                pixel_color += rayColor(ray, world);
+                pixel_color += rayColor(ray, world, rand, max_subcalls);
             }
 
             pixel_color /= @splat(3, @intToFloat(f64, samples_taken));
@@ -66,9 +67,29 @@ pub fn main() !void {
     std.debug.print("\nDone.\n", .{});
 }
 
-pub fn rayColor(ray: Ray, world: World) [3]f64 {
+fn randomInUnitSphere(rand: std.rand.Random) @Vector(3, f64) {
+    while (true) {
+        const p = .{
+            rand.float(f64),
+            rand.float(f64),
+            rand.float(f64),
+        };
+        if (Vec3d.length(p) >= 1) {
+            continue;
+        }
+        return p;
+    }
+}
+
+pub fn rayColor(ray: Ray, world: World, rand: std.rand.Random, max_subcalls: usize) [3]f64 {
+    if (max_subcalls == 0) {
+        // too many calls; set color to 0
+        return .{ 0, 0, 0 };
+    }
     if (world.hit(ray, 0, std.math.inf_f64)) |hit| {
-        return @splat(3, @as(f64, 0.5)) * (hit.normal + @splat(3, @as(f64, 1)));
+        const target = hit.point + hit.normal + randomInUnitSphere(rand);
+        const sub_ray_color = rayColor(.{ .pos = hit.point, .dir = target - hit.point }, world, rand, max_subcalls - 1);
+        return @splat(3, @as(f64, 0.5)) * sub_ray_color;
     }
     const unit_direction = Vec3d.unitVector(ray.dir);
     const t = 0.5 * (unit_direction[1] + 1.0);
