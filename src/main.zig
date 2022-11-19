@@ -89,7 +89,7 @@ pub fn rayColor(ray: Ray, world: World, rand: std.rand.Random, max_subcalls: usi
         // too many calls; set color to 0
         return .{ 0, 0, 0 };
     }
-    if (world.hit(ray, 0, std.math.inf_f64)) |hit| {
+    if (world.hit(ray, 0.001, std.math.inf_f64)) |hit| {
         const target = hit.point + hit.normal + randomInUnitSphere(rand);
         const sub_ray_color = rayColor(.{ .pos = hit.point, .dir = target - hit.point }, world, rand, max_subcalls - 1);
         return @splat(3, @as(f64, 0.5)) * sub_ray_color;
