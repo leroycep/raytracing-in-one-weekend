@@ -59,6 +59,9 @@ pub fn main() !void {
 
             pixel_color /= @splat(3, @intToFloat(f64, samples_taken));
 
+            // gamma correction
+            pixel_color = @sqrt(pixel_color);
+
             try writeColor(stdout, pixel_color);
         }
     }
