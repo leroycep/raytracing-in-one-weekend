@@ -70,6 +70,15 @@ pub fn main() !void {
     std.debug.print("\nDone.\n", .{});
 }
 
+fn randomInHemisphere(rand: std.rand.Random, normal: @Vector(3, f64)) @Vector(3, f64) {
+    const in_sphere = randomInUnitSphere(rand);
+    if (Vec3d.dot(in_sphere, normal) > 0.0) {
+        return in_sphere;
+    } else {
+        return -in_sphere;
+    }
+}
+
 fn randomUnitVector(rand: std.rand.Random) @Vector(3, f64) {
     return Vec3d.unitVector(randomInUnitSphere(rand));
 }
@@ -94,7 +103,7 @@ pub fn rayColor(ray: Ray, world: World, rand: std.rand.Random, max_subcalls: usi
         return .{ 0, 0, 0 };
     }
     if (world.hit(ray, 0.001, std.math.inf_f64)) |hit| {
-        const target = hit.point + hit.normal + randomUnitVector(rand);
+        const target = hit.point + hit.normal + randomInHemisphere(rand, hit.normal);
         const sub_ray_color = rayColor(.{ .pos = hit.point, .dir = target - hit.point }, world, rand, max_subcalls - 1);
         return @splat(3, @as(f64, 0.5)) * sub_ray_color;
     }
