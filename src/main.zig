@@ -1,5 +1,12 @@
 const std = @import("std");
 const Vec3d = @import("vec3.zig").Vec3d;
+const c = @import("./c.zig");
+
+const WIDTH = 400;
+const ASPECT_RATIO = 16.0 / 9.0;
+const HEIGHT = @floatToInt(usize, @intToFloat(f64, WIDTH) / ASPECT_RATIO);
+
+var pixels: [WIDTH * HEIGHT]u32 = undefined;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -9,19 +16,17 @@ pub fn main() !void {
     var rng = std.rand.DefaultPrng.init(1337);
     const rand = rng.random();
 
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
-
-    const aspect_ratio = 16.0 / 9.0;
-    const width = 400;
-    const height = @floatToInt(usize, @intToFloat(f64, width) / aspect_ratio);
+    var f = std.mem.zeroInit(c.fenster, .{
+        .title = "ray-tracing",
+        .width = WIDTH,
+        .height = HEIGHT,
+        .buf = &pixels,
+    });
+    _ = c.fenster_open(&f);
+    defer c.fenster_close(&f);
 
     const viewport_height = 2;
-    const viewport_width = aspect_ratio * viewport_height;
+    const viewport_width = ASPECT_RATIO * viewport_height;
     const focal_length = 1.0;
 
     const origin = @Vector(3, f64){ 0, 0, 0 };
@@ -34,23 +39,35 @@ pub fn main() !void {
 
     var world = World{ .allocator = allocator };
     defer world.deinit();
-    try world.spheres.append(world.allocator, .{ .center = .{ 0, 0, -1 }, .radius = 0.5 });
-    try world.spheres.append(world.allocator, .{ .center = .{ 0, -100.5, -1 }, .radius = 100 });
+    try world.objects.append(world.allocator, .{
+        .sphere = .{ .center = .{ -0.0, 0, -1 }, .radius = 0.5 },
+        .material = Material{ .lambertian = .{ 0.7, 0.3, 0.3 } },
+    });
+    try world.objects.append(world.allocator, .{
+        .sphere = .{ .center = .{ 0, -100.5, -1 }, .radius = 100 },
+        .material = Material{ .lambertian = .{ 0.8, 0.8, 0.0 } },
+    });
+    try world.objects.append(world.allocator, .{
+        .sphere = .{ .center = .{ -1, 0, -1 }, .radius = 0.5 },
+        .material = Material{ .metal = .{ 0.8, 0.8, 0.8 } },
+    });
+    try world.objects.append(world.allocator, .{
+        .sphere = .{ .center = .{ 1, 0, -1 }, .radius = 0.5 },
+        .material = Material{ .metal = .{ 0.8, 0.6, 0.2 } },
+    });
 
-    try stdout.print("P3\n{} {}\n255\n", .{ width, height });
-
-    var j: usize = height;
-    while (j > 0) : (j -= 1) {
+    var j: usize = HEIGHT;
+    rendering: while (j > 0) : (j -= 1) {
         std.debug.print("\rScanlines remaining: {}", .{j});
 
         var i: usize = 0;
-        while (i < width) : (i += 1) {
+        while (i < WIDTH) : (i += 1) {
             var pixel_color = @Vector(3, f64){ 0, 0, 0 };
 
             var samples_taken: usize = 0;
             while (samples_taken < samples_per_pixel) : (samples_taken += 1) {
-                const u = @splat(3, (@intToFloat(f64, i) + rand.float(f64)) / @intToFloat(f64, width));
-                const v = @splat(3, (@intToFloat(f64, j) + rand.float(f64)) / @intToFloat(f64, height));
+                const u = @splat(3, (@intToFloat(f64, i) + rand.float(f64)) / @intToFloat(f64, WIDTH));
+                const v = @splat(3, (@intToFloat(f64, j) + rand.float(f64)) / @intToFloat(f64, HEIGHT));
 
                 const ray = Ray{ .pos = origin, .dir = lower_left + u * horizontal + v * vertical - origin };
 
@@ -62,12 +79,20 @@ pub fn main() !void {
             // gamma correction
             pixel_color = @sqrt(pixel_color);
 
-            try writeColor(stdout, pixel_color);
+            pixels[(HEIGHT - j) * WIDTH + i] = (@floatToInt(u32, pixel_color[0] * 0xFF) << 16) | (@floatToInt(u32, pixel_color[1] * 0xFF) << 8) | (@floatToInt(u32, pixel_color[2] * 0xFF) << 0);
+            if (c.fenster_loop(&f) != 0) {
+                break :rendering;
+            }
         }
     }
 
-    try bw.flush(); // don't forget to flush!
     std.debug.print("\nDone.\n", .{});
+
+    while (c.fenster_loop(&f) != 0) {
+        if (f.keys[27] != 0) {
+            break;
+        }
+    }
 }
 
 fn randomInHemisphere(rand: std.rand.Random, normal: @Vector(3, f64)) @Vector(3, f64) {
@@ -103,40 +128,86 @@ pub fn rayColor(ray: Ray, world: World, rand: std.rand.Random, max_subcalls: usi
         return .{ 0, 0, 0 };
     }
     if (world.hit(ray, 0.001, std.math.inf_f64)) |hit| {
-        const target = hit.point + hit.normal + randomInHemisphere(rand, hit.normal);
-        const sub_ray_color = rayColor(.{ .pos = hit.point, .dir = target - hit.point }, world, rand, max_subcalls - 1);
-        return @splat(3, @as(f64, 0.5)) * sub_ray_color;
+        const material = world.objects.items(.material)[hit.object];
+
+        const sub_ray: Ray = switch (material) {
+            .lambertian => .{
+                .pos = hit.point,
+                .dir = blk: {
+                    const dir = hit.normal + randomInHemisphere(rand, hit.normal);
+                    if (Vec3d.nearZero(dir)) {
+                        break :blk hit.normal;
+                    }
+                    break :blk dir;
+                },
+            },
+            .metal => .{
+                .pos = hit.point,
+                .dir = blk: {
+                    const dir = Vec3d.reflect(ray.dir, Vec3d.unitVector(hit.normal));
+                    if (Vec3d.dot(dir, hit.normal) <= 0) {
+                        return .{ 0, 0, 0 };
+                    }
+                    break :blk dir;
+                },
+            },
+        };
+
+        const attenuation = switch (material) {
+            .lambertian, .metal => |albedo| albedo,
+        };
+
+        const sub_ray_color = rayColor(
+            sub_ray,
+            world,
+            rand,
+            max_subcalls - 1,
+        );
+        return @as(@Vector(3, f64), attenuation) * sub_ray_color;
+        // _ = attenuation;
+        // _ = sub_ray;
+        // return (Vec3d.unitVector(hit.normal) + @splat(3, @as(f64, 1))) / @splat(3, @as(f64, 2));
     }
     const unit_direction = Vec3d.unitVector(ray.dir);
     const t = 0.5 * (unit_direction[1] + 1.0);
     return @splat(3, 1.0 - t) * @Vector(3, f64){ 1, 1, 1 } + @splat(3, t) * @Vector(3, f64){ 0.5, 0.7, 1 };
 }
 
-pub const HitRecord = struct {
-    point: @Vector(3, f64),
-    normal: @Vector(3, f64),
-    t: f64,
-    front_face: bool,
-};
-
 pub const World = struct {
     allocator: std.mem.Allocator,
-    spheres: std.ArrayListUnmanaged(Sphere) = .{},
+    objects: std.MultiArrayList(Object) = .{},
+
+    const Object = struct {
+        sphere: Sphere,
+        material: Material,
+    };
 
     pub fn deinit(this: *@This()) void {
-        this.spheres.deinit(this.allocator);
+        this.objects.deinit(this.allocator);
     }
+
+    pub const HitRecord = struct {
+        point: @Vector(3, f64),
+        normal: @Vector(3, f64),
+        t: f64,
+        object: usize,
+        front_face: bool,
+    };
 
     pub fn hit(this: @This(), ray: Ray, t_min: f64, t_max: f64) ?HitRecord {
         var hit_record: ?HitRecord = null;
-        for (this.spheres.items) |sphere| {
+        for (this.objects.items(.sphere)) |sphere, index| {
             if (sphere.hit(ray, t_min, t_max)) |record| {
-                const prev = hit_record orelse {
-                    hit_record = record;
-                    continue;
+                const this_record = .{
+                    .point = record.point,
+                    .normal = record.normal,
+                    .t = record.t,
+                    .front_face = record.front_face,
+
+                    .object = index,
                 };
-                if (record.t < prev.t) {
-                    hit_record = record;
+                if (hit_record == null or record.t < hit_record.?.t) {
+                    hit_record = this_record;
                 }
             }
         }
@@ -144,19 +215,31 @@ pub const World = struct {
     }
 };
 
+pub const Material = union(enum(u8)) {
+    lambertian: [3]f64,
+    metal: [3]f64,
+};
+
 pub const Sphere = struct {
     center: @Vector(3, f64),
     radius: f64,
+
+    pub const HitRecord = struct {
+        point: @Vector(3, f64),
+        normal: @Vector(3, f64),
+        t: f64,
+        front_face: bool,
+    };
 
     pub fn hit(this: @This(), ray: Ray, t_min: f64, t_max: f64) ?HitRecord {
         const oc = ray.pos - this.center;
         const a = Vec3d.lengthSquared(ray.dir);
         const half_b = Vec3d.dot(oc, ray.dir);
-        const c = Vec3d.lengthSquared(oc) - this.radius * this.radius;
-        const discriminant = half_b * half_b - a * c;
+        const c0 = Vec3d.lengthSquared(oc) - this.radius * this.radius;
+        const discriminant = half_b * half_b - a * c0;
         if (discriminant < 0) return null;
-        const sqrt_discriminant = @sqrt(discriminant);
 
+        const sqrt_discriminant = @sqrt(discriminant);
         var root = (-half_b - sqrt_discriminant) / a;
         if (root < t_min or t_max < root) {
             root = (-half_b + sqrt_discriminant) / a;
@@ -166,11 +249,13 @@ pub const Sphere = struct {
         }
 
         const point = ray.at(root);
+        const outward_normal = Vec3d.unitVector(point - this.center);
+        const is_front_face = Vec3d.dot(ray.dir, outward_normal) < 0;
         return HitRecord{
             .t = root,
             .point = point,
-            .normal = (point - this.center) / @splat(3, this.radius),
-            .front_face = true,
+            .normal = if (is_front_face) outward_normal else -outward_normal,
+            .front_face = is_front_face,
         };
     }
 };
@@ -183,18 +268,3 @@ pub const Ray = struct {
         return this.pos + Vec3d.unitVector(this.dir) * @splat(3, t);
     }
 };
-
-pub fn writeColor(writer: anytype, color: [3]f64) !void {
-    try writer.print("{} {} {}\n", .{
-        @floatToInt(u8, 255 * color[0]),
-        @floatToInt(u8, 255 * color[1]),
-        @floatToInt(u8, 255 * color[2]),
-    });
-}
-
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
-}

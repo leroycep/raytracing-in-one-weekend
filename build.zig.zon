@@ -1,0 +1,10 @@
+.{
+	.name = "try-fenster",
+	.version = "0.1.0",
+	.dependencies = .{
+		.fenster = .{
+			.url = "https://github.com/leroycep/fenster/archive/79b37469cada2fee2e84bd89f839d1d579016d5d.tar.gz",
+			.hash = "1220812c7432a12b5b2df35b1fc5d4aa3297aca07acebeaeb37f96761aa339568bff",
+		},
+	},
+}

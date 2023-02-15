@@ -8,8 +8,8 @@ pub fn Vec3(comptime T: type) type {
             return @sqrt(lengthSquared(v));
         }
 
-        pub fn lengthSquared(v: [3]T) T {
-            return v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+        pub fn lengthSquared(v: @Vector(3, T)) T {
+            return @reduce(.Add, v * v);
         }
 
         pub fn dot(u: @Vector(3, T), v: @Vector(3, T)) T {
@@ -26,6 +26,15 @@ pub fn Vec3(comptime T: type) type {
 
         pub fn unitVector(v: @Vector(3, T)) @Vector(3, T) {
             return v / @splat(3, length(v));
+        }
+
+        pub fn reflect(v: @Vector(3, T), n: @Vector(3, T)) @Vector(3, T) {
+            return v - @splat(3, 2 * dot(v, n)) * n;
+        }
+
+        pub fn nearZero(v: @Vector(3, T)) bool {
+            const s = 1e-8;
+            return @reduce(.And, @fabs(v) < @splat(3, @as(T, s)));
         }
     };
 }
